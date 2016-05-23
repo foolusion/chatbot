@@ -2,21 +2,48 @@ package main
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"net"
 	"net/http"
 	"os"
+	"regexp"
 
-	"github.com/foolusion/chatbot/chatfunc"
+	"golang.org/x/net/context"
+
+	"google.golang.org/grpc"
+
+	"github.com/foolusion/chatbot/botrpc"
 )
 
-func init() {
-	http.HandleFunc("/register", register)
+type server struct{}
+
+func (s *server) Add(ctx context.Context, in *botrpc.Func) (*botrpc.FuncStatus, error) {
+	re, err := regexp.Compile(in.Trigger)
+	if err != nil {
+		return &botrpc.FuncStatus{
+			Status: 0,
+		}, err
+	}
+	cf := chatfunc{Func: *in, triggerExpr: re}
+	chatFuncs = append(chatFuncs, cf)
+	return &botrpc.FuncStatus{
+		Status: 1,
+	}, nil
 }
 
-var chatFuncs []*chatfunc.Data
+func (s *server) Remove(ctx context.Context, in *botrpc.Func) (*botrpc.FuncStatus, error) {
+	return nil, nil
+}
+
+type chatfunc struct {
+	botrpc.Func
+	triggerExpr *regexp.Regexp
+}
+
+var chatFuncs []chatfunc
+
+const port = ":8080"
 
 func main() {
 	// connect to chat
@@ -25,7 +52,13 @@ func main() {
 	go listen(os.Stdin)
 
 	// start registration server
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	lis, err := net.Listen("tcp", port)
+	if err != nil {
+		fmt.Fprintf(os.Stdout, "failed to listen: %v\n", err)
+	}
+	s := grpc.NewServer()
+	botrpc.RegisterBotServer(s, &server{})
+	s.Serve(lis)
 }
 
 func listen(r io.Reader) {
@@ -38,31 +71,15 @@ func listen(r io.Reader) {
 	}
 }
 
-func register(w http.ResponseWriter, r *http.Request) {
-	dec := json.NewDecoder(r.Body)
-	var cf chatfunc.Data
-	if err := dec.Decode(&cf); err != nil {
-		fmt.Fprintf(os.Stdout, "decoding register chatFunc: %v\n", err)
-	}
-	chatFuncs = append(chatFuncs, &cf)
-}
-
 func handleChat(msg string) {
 	if chatFuncs == nil {
 		return
 	}
-	for i, cf := range chatFuncs {
-		ok, err := cf.Match(msg)
-		if err != nil {
-			fmt.Fprintf(os.Stdout, "error matching trigger: %v\n", err)
-			chatFuncs[i] = chatFuncs[len(chatFuncs)-1]
-			chatFuncs[len(chatFuncs)-1] = nil
-			chatFuncs = chatFuncs[:len(chatFuncs)-1]
-		}
-		if !ok {
+	for _, cf := range chatFuncs {
+		if ok := cf.triggerExpr.MatchString(msg); !ok {
 			continue
 		}
-		resp, err := http.Get(cf.Endpoint)
+		resp, err := http.Get(cf.Port)
 		if err != nil {
 			fmt.Fprintf(os.Stdout, "response from chatFunc: %v\n", err)
 		} else if resp.StatusCode != http.StatusOK {

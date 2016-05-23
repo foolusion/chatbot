@@ -3,7 +3,7 @@ a chat bot microservice
 
 ## ideas
 
-* Chat bot will use grpc for communicating between services.
+* Chat bot will use [gRPC][grpc] for communicating between services.
 * Implement new responses as functions.
 * One service can have many functions.
 * Chat bot will listen to chat service for messages.
@@ -21,3 +21,5 @@ a chat bot microservice
 * create rpc spec
 * write tests
 * lot's of other stuff
+
+[grpc]: http://grpc.io 

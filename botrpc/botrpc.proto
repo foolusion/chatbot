@@ -1,0 +1,34 @@
+syntax = "proto3";
+
+package botrpc;
+
+service Bot {
+	// Register registers a function service to the bot. Information about
+	// the registration including the success is returned in the
+	// Registration.
+	rpc Add(Func) returns (FuncStatus) {}
+	rpc Remove(Func) returns (FuncStatus) {}
+}
+
+service BotFuncs {
+	rpc Run(ChatMessage) returns (stream ChatMessage) {}
+}
+
+message Func {
+	string port = 1; // port that the BotFuncs are listening on
+	string trigger = 2; // regexp that triggers the BotFunc to be called
+	string func_name = 3; // func_name is the func in BotFuncs that should be called.
+	string usage = 4; // usage is the help text for a BotFunc
+}
+message FuncStatus {
+	enum Status {
+		ERROR = 0;
+		OK = 1;
+	}
+	Status status = 1;
+}
+message ChatMessage {
+	string message_text = 1;
+	string user = 2;
+	string channel = 3;
+}

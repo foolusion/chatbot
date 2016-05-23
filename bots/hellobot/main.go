@@ -18,7 +18,7 @@ func init() {
 
 func main() {
 	if err := register(); err != nil {
-		fmt.Fprintf(os.Stdout, "registering hellobot: %v", err)
+		fmt.Fprintf(os.Stdout, "error registering hellobot: %v", err)
 	}
 
 	log.Fatal(http.ListenAndServe(":8081", nil))
