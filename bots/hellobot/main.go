@@ -1,19 +1,30 @@
 package main
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
-	"io"
-	"log"
-	"net/http"
+	"net"
 	"os"
 
-	"github.com/foolusion/chatbot/chatfunc"
+	"golang.org/x/net/context"
+
+	"google.golang.org/grpc"
+
+	"github.com/foolusion/chatbot/botrpc"
 )
 
-func init() {
-	http.HandleFunc("/", rootHandler)
+const address = "localhost:8080"
+const port = ":8081"
+
+type server struct{}
+
+func (s *server) Run(in *botrpc.ChatMessage, stream botrpc.BotFuncs_RunServer) error {
+	switch in.FuncName {
+	case "hello":
+		hello(in, stream)
+	default:
+		return fmt.Errorf("func does not exist: %v", *in)
+	}
+	return nil
 }
 
 func main() {
@@ -21,33 +32,68 @@ func main() {
 		fmt.Fprintf(os.Stdout, "error registering hellobot: %v", err)
 	}
 
-	log.Fatal(http.ListenAndServe(":8081", nil))
+	lis, err := net.Listen("tcp", port)
+	if err != nil {
+		fmt.Fprintf(os.Stdout, "failed to listen: %v\n", err)
+	}
+	s := grpc.NewServer()
+	botrpc.RegisterBotFuncsServer(s, &server{})
+	s.Serve(lis)
 }
 
 func register() error {
-	cfd := chatfunc.Data{
-		Endpoint: "http://localhost:8081",
+	addr, err := getIP()
+	if err != nil {
+		return err
+	}
+	conn, err := grpc.Dial(address, grpc.WithInsecure())
+	if err != nil {
+		fmt.Fprintf(os.Stdout, "error connecting with client: %v", err)
+	}
+	defer conn.Close()
+	cfd := &botrpc.Func{
+		Addr:     addr + port,
 		Trigger:  "hello",
+		FuncName: "hello",
+		Usage:    "bot responds when you say \"hello\".",
 	}
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	if err := enc.Encode(&cfd); err != nil {
-		return fmt.Errorf("encoding chatfunc: %v", err)
-	}
-	r, err := http.NewRequest("GET", "http://localhost:8080/register", &buf)
+	c := botrpc.NewBotClient(conn)
+	// eventually do something with fs
+	_, err = c.Add(context.Background(), cfd)
 	if err != nil {
-		return fmt.Errorf("creating request: %v", err)
+		return err
 	}
-	c := &http.Client{}
-	resp, err := c.Do(r)
-	if err != nil {
-		return fmt.Errorf("doing request: %v", err)
-	}
-	defer resp.Body.Close()
-	io.Copy(os.Stdout, resp.Body)
 	return nil
 }
 
-func rootHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, "hey there")
+func hello(in *botrpc.ChatMessage, stream botrpc.BotFuncs_RunServer) {
+	in.Body = "hey there"
+	stream.Send(in)
+}
+
+func getIP() (string, error) {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return "", err
+	}
+	for _, i := range ifaces {
+		addrs, err := i.Addrs()
+		if err != nil {
+			return "", err
+		}
+		for _, addr := range addrs {
+			var ip net.IP
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			}
+			if ip.IsLoopback() {
+				continue
+			}
+			return ip.String(), nil
+		}
+	}
+	return "", fmt.Errorf("No valid interfaces found")
 }

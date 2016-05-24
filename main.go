@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"net/http"
 	"os"
 	"regexp"
 
@@ -79,13 +78,30 @@ func handleChat(msg string) {
 		if ok := cf.triggerExpr.MatchString(msg); !ok {
 			continue
 		}
-		resp, err := http.Get(cf.Port)
+
+		conn, err := grpc.Dial(cf.Addr, grpc.WithInsecure())
 		if err != nil {
-			fmt.Fprintf(os.Stdout, "response from chatFunc: %v\n", err)
-		} else if resp.StatusCode != http.StatusOK {
-			fmt.Fprintf(os.Stdout, "non ok response from chatFunc: %v\n", resp.Status)
+			fmt.Fprintf(os.Stdout, "error connecting with client: %v", err)
 		}
-		// write resp to chat conn
-		io.Copy(os.Stdout, resp.Body)
+		defer conn.Close()
+		c := botrpc.NewBotFuncsClient(conn)
+
+		stream, err := c.Run(context.Background(), &botrpc.ChatMessage{
+			Body:     msg,
+			Channel:  "main",
+			User:     "andrew",
+			FuncName: cf.FuncName,
+		})
+		for {
+			in, err := stream.Recv()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				fmt.Fprintf(os.Stdout, "error streaming from BotFuncs: %v", err)
+				break
+			}
+			fmt.Fprintln(os.Stdout, in.Body)
+		}
 	}
 }

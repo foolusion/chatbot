@@ -15,9 +15,9 @@ service BotFuncs {
 }
 
 message Func {
-	string port = 1; // port that the BotFuncs are listening on
+	string addr = 1; // address and port that the BotFuncs are listening on
 	string trigger = 2; // regexp that triggers the BotFunc to be called
-	string func_name = 3; // func_name is the func in BotFuncs that should be called.
+	string func_name = 3; // the func in BotFuncs that should be called.
 	string usage = 4; // usage is the help text for a BotFunc
 }
 message FuncStatus {
@@ -28,7 +28,8 @@ message FuncStatus {
 	Status status = 1;
 }
 message ChatMessage {
-	string message_text = 1;
+	string body = 1;
 	string user = 2;
 	string channel = 3;
+	string func_name = 4;
 }
