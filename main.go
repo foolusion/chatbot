@@ -75,7 +75,7 @@ func main() {
 	case e := <-errorChan:
 		log.Fatalf("error occurred: %v", e)
 	case s := <-signalChan:
-		fmt.Printf("Captured %v. Exitting...", s)
+		log.Println(fmt.Sprintf("Captured %v. Exitting...", s))
 		// shutdown incoming chat listener
 		// shutdown registration server
 		os.Exit(0)

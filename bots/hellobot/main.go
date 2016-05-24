@@ -12,7 +12,7 @@ import (
 	"github.com/foolusion/chatbot/botrpc"
 )
 
-const address = "localhost:8080"
+const address = "localhost:8173"
 const port = ":8081"
 
 type server struct{}
