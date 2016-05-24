@@ -4,9 +4,12 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
+	"os/signal"
 	"regexp"
+	"syscall"
 
 	"golang.org/x/net/context"
 
@@ -42,32 +45,64 @@ type chatfunc struct {
 
 var chatFuncs []chatfunc
 
-const port = ":8080"
+var config = struct {
+	addr string
+}{
+	addr: "0.0.0.0:8173",
+}
 
 func main() {
+	log.SetOutput(os.Stdout)
+	if addr := os.Getenv("CHATBOT_ADDR"); addr != "" {
+		config.addr = addr
+	}
 	// connect to chat
 
 	// listen for incoming chat
-	go listen(os.Stdin)
+	errorChan := make(chan error)
+	go func() {
+		errorChan <- listen(os.Stdin)
+	}()
 
 	// start registration server
-	lis, err := net.Listen("tcp", port)
-	if err != nil {
-		fmt.Fprintf(os.Stdout, "failed to listen: %v\n", err)
+	go func() {
+		errorChan <- startBotServer()
+	}()
+
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
+	select {
+	case e := <-errorChan:
+		log.Fatalf("error occurred: %v", e)
+	case s := <-signalChan:
+		fmt.Printf("Captured %v. Exitting...", s)
+		// shutdown incoming chat listener
+		// shutdown registration server
+		os.Exit(0)
 	}
-	s := grpc.NewServer()
-	botrpc.RegisterBotServer(s, &server{})
-	s.Serve(lis)
 }
 
-func listen(r io.Reader) {
+func listen(r io.Reader) error {
 	s := bufio.NewScanner(r)
 	for s.Scan() {
 		handleChat(s.Text())
 	}
-	if s.Err() != nil {
-		fmt.Fprintf(os.Stdout, "scanning messages: %v\n", s.Err())
+	if s.Err() == io.EOF {
+		return fmt.Errorf("Captured %v on chat listener. Exitting...", s.Err())
 	}
+	if s.Err() != nil {
+		return fmt.Errorf("scanning messages: %v", s.Err())
+	}
+	return nil
+}
+func startBotServer() error {
+	lis, err := net.Listen("tcp", config.addr)
+	if err != nil {
+		log.Printf("failed to listen: %v\n", err)
+	}
+	s := grpc.NewServer()
+	botrpc.RegisterBotServer(s, &server{})
+	return s.Serve(lis)
 }
 
 func handleChat(msg string) {
@@ -81,7 +116,7 @@ func handleChat(msg string) {
 
 		conn, err := grpc.Dial(cf.Addr, grpc.WithInsecure())
 		if err != nil {
-			fmt.Fprintf(os.Stdout, "error connecting with client: %v", err)
+			log.Printf("error connecting with client: %v", err)
 		}
 		defer conn.Close()
 		c := botrpc.NewBotFuncsClient(conn)
@@ -98,7 +133,7 @@ func handleChat(msg string) {
 				break
 			}
 			if err != nil {
-				fmt.Fprintf(os.Stdout, "error streaming from BotFuncs: %v", err)
+				log.Printf("error streaming from BotFuncs: %v", err)
 				break
 			}
 			fmt.Fprintln(os.Stdout, in.Body)
