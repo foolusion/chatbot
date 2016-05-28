@@ -57,6 +57,10 @@ func main() {
 	}
 	config.address = os.Getenv("CHATBOT_ADDRESS")
 
+	if err := connectToChatbot(); err != nil {
+		log.Fatal(err)
+	}
+
 	url := callRTMStart()
 	config.ws = createWSConn(url)
 
@@ -89,6 +93,15 @@ func main() {
 			os.Exit(0)
 		}
 	}
+}
+
+func connectToChatbot() error {
+	conn, err := grpc.Dial(config.address, grpc.WithInsecure())
+	if err != nil {
+		return fmt.Errorf("error connecting with client: %v", err)
+	}
+	config.client = botrpc.NewBotClient(conn)
+	return nil
 }
 
 func callRTMStart() string {
@@ -213,13 +226,7 @@ func handleMessage(msg string) error {
 		Channel: sm.Channel,
 	}
 	log.Printf("sending to chatbot: %v\n", m.Body)
-	conn, err := grpc.Dial(config.address, grpc.WithInsecure())
-	if err != nil {
-		return fmt.Errorf("error connecting with client: %v", err)
-	}
-	defer conn.Close()
-	client := botrpc.NewBotClient(conn)
-	stream, err := client.SendMessage(context.Background(), m)
+	stream, err := config.client.SendMessage(context.Background(), m)
 	if err != nil {
 		return err
 	}
