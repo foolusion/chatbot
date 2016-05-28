@@ -17,7 +17,7 @@ const port = ":8081"
 
 type server struct{}
 
-func (s *server) Run(in *botrpc.ChatMessage, stream botrpc.BotFuncs_RunServer) error {
+func (s *server) SendMessage(in *botrpc.ChatMessage, stream botrpc.BotFuncs_SendMessageServer) error {
 	switch in.FuncName {
 	case "hello":
 		hello(in, stream)
@@ -66,7 +66,7 @@ func register() error {
 	return nil
 }
 
-func hello(in *botrpc.ChatMessage, stream botrpc.BotFuncs_RunServer) {
+func hello(in *botrpc.ChatMessage, stream botrpc.BotFuncs_SendMessageServer) {
 	in.Body = "hey there"
 	stream.Send(in)
 }

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"io"
 	"log"
@@ -38,6 +37,10 @@ func (s *server) Remove(ctx context.Context, in *botrpc.Func) (*botrpc.FuncStatu
 	return nil, nil
 }
 
+func (s *server) SendMessage(in *botrpc.ChatMessage, stream botrpc.Bot_SendMessageServer) error {
+	return handleChat(in, stream)
+}
+
 type chatfunc struct {
 	botrpc.Func
 	triggerExpr *regexp.Regexp
@@ -51,18 +54,13 @@ var config = struct {
 	addr: "0.0.0.0:8173",
 }
 
+var errorChan = make(chan error)
+
 func main() {
 	log.SetOutput(os.Stdout)
 	if addr := os.Getenv("CHATBOT_ADDR"); addr != "" {
 		config.addr = addr
 	}
-	// connect to chat
-
-	// listen for incoming chat
-	errorChan := make(chan error)
-	go func() {
-		errorChan <- listen(os.Stdin)
-	}()
 
 	// start registration server
 	go func() {
@@ -82,19 +80,6 @@ func main() {
 	}
 }
 
-func listen(r io.Reader) error {
-	s := bufio.NewScanner(r)
-	for s.Scan() {
-		handleChat(s.Text())
-	}
-	if s.Err() == io.EOF {
-		return fmt.Errorf("Captured %v on chat listener. Exitting...", s.Err())
-	}
-	if s.Err() != nil {
-		return fmt.Errorf("scanning messages: %v", s.Err())
-	}
-	return nil
-}
 func startBotServer() error {
 	lis, err := net.Listen("tcp", config.addr)
 	if err != nil {
@@ -105,12 +90,12 @@ func startBotServer() error {
 	return s.Serve(lis)
 }
 
-func handleChat(msg string) {
+func handleChat(in *botrpc.ChatMessage, demux botrpc.Bot_SendMessageServer) error {
 	if chatFuncs == nil {
-		return
+		return nil
 	}
 	for _, cf := range chatFuncs {
-		if ok := cf.triggerExpr.MatchString(msg); !ok {
+		if ok := cf.triggerExpr.MatchString(in.Body); !ok {
 			continue
 		}
 
@@ -121,12 +106,9 @@ func handleChat(msg string) {
 		defer conn.Close()
 		c := botrpc.NewBotFuncsClient(conn)
 
-		stream, err := c.Run(context.Background(), &botrpc.ChatMessage{
-			Body:     msg,
-			Channel:  "main",
-			User:     "andrew",
-			FuncName: cf.FuncName,
-		})
+		// TODO fix this
+		in.FuncName = cf.FuncName
+		stream, err := c.SendMessage(context.Background(), in)
 		for {
 			in, err := stream.Recv()
 			if err == io.EOF {
@@ -136,7 +118,13 @@ func handleChat(msg string) {
 				log.Printf("error streaming from BotFuncs: %v", err)
 				break
 			}
-			fmt.Fprintln(os.Stdout, in.Body)
+			if err := demux.Send(in); err == io.EOF {
+				break
+			} else if err != nil {
+				log.Printf("error streaming to integration: %v", err)
+				break
+			}
 		}
 	}
+	return nil
 }

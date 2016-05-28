@@ -8,10 +8,11 @@ service Bot {
 	// Registration.
 	rpc Add(Func) returns (FuncStatus) {}
 	rpc Remove(Func) returns (FuncStatus) {}
+	rpc SendMessage(ChatMessage) returns (stream ChatMessage) {}
 }
 
 service BotFuncs {
-	rpc Run(ChatMessage) returns (stream ChatMessage) {}
+	rpc SendMessage(ChatMessage) returns (stream ChatMessage) {}
 }
 
 message Func {
