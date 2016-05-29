@@ -111,6 +111,8 @@ func handleChat(in *botrpc.ChatMessage, outStream botrpc.Bot_SendMessageServer) 
 	if chatFuncs == nil {
 		return nil
 	}
+	// TODO: handle help
+
 	// for each func check if they are triggered
 	for _, cf := range chatFuncs {
 		if ok := cf.triggerExpr.MatchString(in.Body); !ok {
