@@ -17,8 +17,11 @@ import (
 	"github.com/foolusion/chatbot/botrpc"
 )
 
+// server is used to implement the BotServer interface.
 type server struct{}
 
+// Add adds a function to the server. This should be called for each function
+// that a bot can respond.
 func (s *server) Add(ctx context.Context, in *botrpc.Func) (*botrpc.FuncStatus, error) {
 	re, err := regexp.Compile(in.Trigger)
 	if err != nil {
@@ -33,21 +36,30 @@ func (s *server) Add(ctx context.Context, in *botrpc.Func) (*botrpc.FuncStatus, 
 	}, nil
 }
 
+// Remove deletes the func from server so it will no longer trigger.
+// This doesn't seem neccessary the more i think about it. I can't think of a
+// case where you would remove a function from a server.
 func (s *server) Remove(ctx context.Context, in *botrpc.Func) (*botrpc.FuncStatus, error) {
+	// TODO: implement this.
 	return nil, nil
 }
 
+// SendMessage recieves messages from the integrations and handles them.
 func (s *server) SendMessage(in *botrpc.ChatMessage, stream botrpc.Bot_SendMessageServer) error {
 	return handleChat(in, stream)
 }
 
+// chatfunc is a botrpc.Func  with the compiled regular expression.
 type chatfunc struct {
 	botrpc.Func
 	triggerExpr *regexp.Regexp
 }
 
+// chatFuncs contains all the registered botrpc.Func with compiled regular
+// expressions.
 var chatFuncs []chatfunc
 
+// config is a convenient group for global variables.
 var config = struct {
 	addr string
 }{
@@ -80,6 +92,9 @@ func main() {
 	}
 }
 
+// startBotServer listens on the address specified in config.addr and handles
+// rpcs. Have to check if we can store the server for draining and closing the
+// connection.
 func startBotServer() error {
 	lis, err := net.Listen("tcp", config.addr)
 	if err != nil {
@@ -90,15 +105,19 @@ func startBotServer() error {
 	return s.Serve(lis)
 }
 
-func handleChat(in *botrpc.ChatMessage, demux botrpc.Bot_SendMessageServer) error {
+// handleChat checks if any bots are triggered and sends all the responses back
+// on outStream.
+func handleChat(in *botrpc.ChatMessage, outStream botrpc.Bot_SendMessageServer) error {
 	if chatFuncs == nil {
 		return nil
 	}
+	// for each func check if they are triggered
 	for _, cf := range chatFuncs {
 		if ok := cf.triggerExpr.MatchString(in.Body); !ok {
 			continue
 		}
 
+		// create a connection to the bot
 		conn, err := grpc.Dial(cf.Addr, grpc.WithInsecure())
 		if err != nil {
 			log.Printf("error connecting with client: %v", err)
@@ -106,10 +125,11 @@ func handleChat(in *botrpc.ChatMessage, demux botrpc.Bot_SendMessageServer) erro
 		defer conn.Close()
 		c := botrpc.NewBotFuncsClient(conn)
 
-		// TODO fix this
+		// set the FuncName and send it to the bot.
 		in.FuncName = cf.FuncName
 		stream, err := c.SendMessage(context.Background(), in)
 		for {
+			// read response from bot
 			in, err := stream.Recv()
 			if err == io.EOF {
 				break
@@ -118,7 +138,8 @@ func handleChat(in *botrpc.ChatMessage, demux botrpc.Bot_SendMessageServer) erro
 				log.Printf("error streaming from BotFuncs: %v", err)
 				break
 			}
-			if err := demux.Send(in); err == io.EOF {
+			// send it to integration
+			if err := outStream.Send(in); err == io.EOF {
 				break
 			} else if err != nil {
 				log.Printf("error streaming to integration: %v", err)
