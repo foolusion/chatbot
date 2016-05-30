@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"log"
@@ -8,7 +9,9 @@ import (
 	"os"
 	"os/signal"
 	"regexp"
+	"strings"
 	"syscall"
+	"text/tabwriter"
 
 	"golang.org/x/net/context"
 
@@ -111,7 +114,20 @@ func handleChat(in *botrpc.ChatMessage, outStream botrpc.Bot_SendMessageServer) 
 	if chatFuncs == nil {
 		return nil
 	}
+
 	// TODO: handle help
+	if strings.ToLower(in.Body) == "help" {
+		var buf bytes.Buffer
+		w := tabwriter.NewWriter(&buf, 0, 8, 0, '\t', 0)
+		fmt.Fprintf(w, "trigger\thelp\n")
+		for _, cf := range chatFuncs {
+			fmt.Fprintf(w, "%q\t%s\n", cf.Trigger, cf.Usage)
+		}
+		w.Flush()
+		cm := &botrpc.ChatMessage{Body: buf.String(), Channel: in.Channel}
+		outStream.Send(cm)
+		return nil
+	}
 
 	// for each func check if they are triggered
 	for _, cf := range chatFuncs {
